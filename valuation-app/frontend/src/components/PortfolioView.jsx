@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 function fmt(n, decimals = 2) {
   if (n == null) return '—'
   return new Intl.NumberFormat('en-US', {
@@ -8,7 +10,47 @@ function fmt(n, decimals = 2) {
   }).format(n)
 }
 
-export default function PortfolioView({ portfolio, onRemove, onRowClick }) {
+function SortTh({ col, label, sort, onSort, right = false, extraClass = '' }) {
+  const active = sort.col === col
+  return (
+    <th
+      onClick={() => onSort(col)}
+      className={`text-xs font-medium pb-3 pr-4 cursor-pointer select-none group ${extraClass}`}
+    >
+      <span className={`flex items-center gap-1 text-gray-500 hover:text-gray-300 transition-colors whitespace-nowrap ${right ? 'justify-end' : ''}`}>
+        {label}
+        <span className={active ? 'text-blue-400' : 'text-gray-700 group-hover:text-gray-500'}>
+          {active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
+export default function PortfolioView({ portfolio, onRemove, onRowClick, onRefreshAll, refreshing }) {
+  const [sort, setSort] = useState({ col: 'upside_pct', dir: 'desc' })
+
+  function toggleSort(col) {
+    setSort(s => s.col === col
+      ? { col, dir: s.dir === 'desc' ? 'asc' : 'desc' }
+      : { col, dir: 'desc' }
+    )
+  }
+
+  const sorted = [...portfolio].sort((a, b) => {
+    const av = a[sort.col], bv = b[sort.col]
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv
+    return sort.dir === 'asc' ? cmp : -cmp
+  })
+
+  const lastRefreshed = portfolio.reduce((latest, p) => {
+    if (!p.refreshed_at) return latest
+    return !latest || p.refreshed_at > latest ? p.refreshed_at : latest
+  }, null)
+
   if (!portfolio.length) {
     return (
       <div className="flex flex-col items-center justify-center py-28 gap-3 text-center">
@@ -23,22 +65,45 @@ export default function PortfolioView({ portfolio, onRemove, onRowClick }) {
 
   return (
     <div className="card overflow-x-auto">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-gray-400">
+          {portfolio.length} stock{portfolio.length !== 1 ? 's' : ''}
+        </p>
+        <button
+          onClick={onRefreshAll}
+          disabled={refreshing}
+          className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+            refreshing
+              ? 'bg-gray-800 text-gray-500 cursor-default'
+              : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+          }`}
+        >
+          {refreshing && (
+            <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+            </svg>
+          )}
+          {refreshing ? 'Refreshing…' : 'Refresh All'}
+        </button>
+      </div>
+
       <table className="w-full text-sm min-w-[600px]">
         <thead>
           <tr className="border-b border-gray-800">
-            <th className="text-left text-xs text-gray-500 font-medium pb-3 pr-4">Ticker</th>
-            <th className="text-left text-xs text-gray-500 font-medium pb-3 pr-4">Company</th>
-            <th className="text-left text-xs text-gray-500 font-medium pb-3 pr-4 hidden md:table-cell">Industry</th>
-            <th className="text-right text-xs text-gray-500 font-medium pb-3 pr-4">Current</th>
-            <th className="text-right text-xs text-gray-500 font-medium pb-3 pr-4">Target</th>
-            <th className="text-right text-xs text-gray-500 font-medium pb-3 pr-4">Upside</th>
-            <th className="text-right text-xs text-gray-500 font-medium pb-3 pr-4 hidden lg:table-cell">DCF</th>
-            <th className="text-right text-xs text-gray-500 font-medium pb-3 pr-4 hidden lg:table-cell">Multiples Avg</th>
+            <SortTh col="ticker"              label="Ticker"       sort={sort} onSort={toggleSort} />
+            <SortTh col="name"                label="Company"      sort={sort} onSort={toggleSort} />
+            <SortTh col="damodaran_industry"  label="Industry"     sort={sort} onSort={toggleSort} extraClass="hidden md:table-cell" />
+            <SortTh col="current_price"       label="Current"      sort={sort} onSort={toggleSort} right />
+            <SortTh col="composite_price"     label="Target"       sort={sort} onSort={toggleSort} right />
+            <SortTh col="upside_pct"          label="Upside"       sort={sort} onSort={toggleSort} right />
+            <SortTh col="dcf_price"           label="DCF"          sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
+            <SortTh col="multiples_avg_price" label="Multiples Avg" sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
             <th className="pb-3"></th>
           </tr>
         </thead>
         <tbody>
-          {portfolio.map((p) => {
+          {sorted.map((p) => {
             const up = p.upside_pct >= 0
             return (
               <tr
@@ -91,7 +156,10 @@ export default function PortfolioView({ portfolio, onRemove, onRowClick }) {
         </tbody>
       </table>
       <p className="text-xs text-gray-600 mt-4 pt-3 border-t border-gray-800">
-        Prices are from when the stock was added. Click a row to reload the full valuation.
+        {lastRefreshed
+          ? `Last refreshed ${new Date(lastRefreshed).toLocaleString()}. `
+          : 'Prices are from when each stock was added. '}
+        Click a row to reload the full valuation.
       </p>
     </div>
   )

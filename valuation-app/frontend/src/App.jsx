@@ -17,6 +17,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('valuation_portfolio')) ?? [] }
     catch { return [] }
   })
+  const [refreshing, setRefreshing]     = useState(false)
 
   const debounceRef = useRef(null)
 
@@ -43,6 +44,37 @@ export default function App() {
 
   function handleRemoveFromPortfolio(ticker) {
     savePortfolio(portfolio.filter(p => p.ticker !== ticker))
+  }
+
+  async function handleRefreshAll() {
+    if (refreshing || !portfolio.length) return
+    setRefreshing(true)
+    try {
+      const updated = await Promise.all(
+        portfolio.map(async (p) => {
+          try {
+            const res = await valuate(p.ticker)
+            const md = res.multiples_detail
+            const vals = [md.ev_ebitda_implied_price, md.pe_implied_price, md.ps_implied_price]
+              .filter(v => v != null && v > 0)
+            return {
+              ...p,
+              current_price: res.current_price,
+              composite_price: res.composite_price,
+              upside_pct: res.upside_pct,
+              dcf_price: res.dcf_price,
+              multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+              refreshed_at: new Date().toISOString(),
+            }
+          } catch {
+            return p
+          }
+        })
+      )
+      savePortfolio(updated)
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   function handlePortfolioRowClick(ticker) {
@@ -211,6 +243,8 @@ export default function App() {
             portfolio={portfolio}
             onRemove={handleRemoveFromPortfolio}
             onRowClick={handlePortfolioRowClick}
+            onRefreshAll={handleRefreshAll}
+            refreshing={refreshing}
           />
         )}
       </main>
