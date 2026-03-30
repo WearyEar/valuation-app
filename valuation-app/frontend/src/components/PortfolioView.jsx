@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
-  ResponsiveContainer, Cell, PieChart, Pie, Legend,
+  ResponsiveContainer, Cell, PieChart, Pie, Legend, AreaChart, Area,
 } from 'recharts'
 
 // ── Formatters ───────────────────────────────────────────────────────────────
@@ -97,6 +97,33 @@ function InlineInput({ value, onChange, placeholder, right = false, width = 'w-2
   )
 }
 
+// ── Sparkline ─────────────────────────────────────────────────────────────────
+
+function Sparkline({ data }) {
+  if (!data?.length || data.length < 2) {
+    return <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>
+  }
+  const first = data[0].composite_price
+  const last  = data[data.length - 1].composite_price
+  const up    = last >= first
+  const color = up ? '#10b981' : '#ef4444'
+  const changePct = (last - first) / first * 100
+  return (
+    <div className="flex items-center gap-1.5">
+      <AreaChart width={60} height={22} data={data} margin={{ top: 1, right: 0, bottom: 1, left: 0 }}>
+        <Area
+          type="monotone" dataKey="composite_price"
+          stroke={color} fill={color} fillOpacity={0.15}
+          dot={false} strokeWidth={1.5} isAnimationActive={false}
+        />
+      </AreaChart>
+      <span className={`text-xs font-mono ${up ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+        {changePct >= 0 ? '+' : ''}{changePct.toFixed(1)}%
+      </span>
+    </div>
+  )
+}
+
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function exportCSV(rows) {
@@ -158,7 +185,10 @@ export default function PortfolioView({
     const pnl_pct      = pnl_dollar != null && total_cost > 0 ? pnl_dollar / total_cost * 100 : null
     const drift        = p.price_at_add != null && p.refreshed_at
       ? (p.current_price - p.price_at_add) / p.price_at_add * 100 : null
-    return { ...p, drift, total_cost, market_value, target_value, pnl_dollar, pnl_pct }
+    const target_trend_pct = p.history?.length >= 2
+      ? (p.history[p.history.length - 1].composite_price - p.history[0].composite_price) / p.history[0].composite_price * 100
+      : null
+    return { ...p, drift, total_cost, market_value, target_value, pnl_dollar, pnl_pct, target_trend_pct }
   })
 
   const totalMarketValue = enriched.reduce((s, p) => s + (p.market_value ?? 0), 0)
@@ -470,6 +500,15 @@ export default function PortfolioView({
                       </div>
                     </div>
                   )}
+                  {p.target_trend_pct != null && (
+                    <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/50 flex items-center gap-1.5 text-xs">
+                      <span className="text-gray-500">Target trend</span>
+                      <span className={`font-mono ${p.target_trend_pct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {p.target_trend_pct >= 0 ? '+' : ''}{p.target_trend_pct.toFixed(1)}%
+                      </span>
+                      <span className="text-gray-400 dark:text-gray-600">since add</span>
+                    </div>
+                  )}
                   <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-700/50" onClick={e => e.stopPropagation()}>
                     <InlineInput value={p.note} placeholder="Add note…" width="w-full"
                       onChange={v => onUpdateNote(p.ticker, v)} />
@@ -496,6 +535,7 @@ export default function PortfolioView({
                   <SortTh col="dcf_price"           label="DCF"           sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   <SortTh col="multiples_avg_price" label="Multiples Avg" sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   <SortTh col="added_at"            label="Added"         sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
+                  <SortTh col="target_trend_pct"    label="Trend"         sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   {showPositions && <>
                     <th className="text-xs font-medium pb-3 pr-3 text-gray-500 text-right whitespace-nowrap">Shares</th>
                     <th className="text-xs font-medium pb-3 pr-3 text-gray-500 text-right whitespace-nowrap">Cost/Share</th>
@@ -542,6 +582,9 @@ export default function PortfolioView({
                       <td className="py-3 pr-3 text-xs font-mono text-gray-500 text-right hidden lg:table-cell">{fmt(p.dcf_price)}</td>
                       <td className="py-3 pr-3 text-xs font-mono text-gray-500 text-right hidden lg:table-cell">{fmt(p.multiples_avg_price)}</td>
                       <td className="py-3 pr-3 text-xs text-gray-500 text-right hidden lg:table-cell whitespace-nowrap">{fmtDate(p.added_at)}</td>
+                      <td className="py-3 pr-3 hidden lg:table-cell">
+                        <Sparkline data={p.history} />
+                      </td>
 
                       {showPositions && <>
                         <td className="py-3 pr-3 text-right" onClick={e => e.stopPropagation()}>

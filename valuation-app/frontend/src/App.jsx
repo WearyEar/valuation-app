@@ -4,6 +4,7 @@ import ValuationResults from './components/ValuationResults'
 import AssumptionsPanel from './components/AssumptionsPanel'
 import ValuationChart from './components/ValuationChart'
 import PortfolioView from './components/PortfolioView'
+import ScenarioPanel from './components/ScenarioPanel'
 import { valuate, recalculate } from './api'
 
 export default function App() {
@@ -19,6 +20,8 @@ export default function App() {
   })
   const [refreshing, setRefreshing]   = useState(false)
   const [theme, setTheme]             = useState(() => localStorage.getItem('theme') ?? 'dark')
+  const [scenarios, setScenarios]     = useState(null)
+  const [scenarioLoading, setScenarioLoading] = useState(false)
 
   const isDark = theme === 'dark'
 
@@ -27,7 +30,42 @@ export default function App() {
     localStorage.setItem('theme', theme)
   }, [theme, isDark])
 
+  useEffect(() => { setScenarios(null) }, [result?.ticker])
+
   const debounceRef = useRef(null)
+
+  // ── scenario helpers ──────────────────────────────────────────────────────
+  function buildBearAssumptions(base) {
+    return {
+      ...base,
+      revenue_growth_rate: Math.max(-0.10, base.revenue_growth_rate * 0.6),
+      target_operating_margin: base.target_operating_margin - Math.max(0.02, base.target_operating_margin * 0.15),
+      equity_risk_premium: Math.min(0.12, base.equity_risk_premium + 0.01),
+    }
+  }
+
+  function buildBullAssumptions(base) {
+    return {
+      ...base,
+      revenue_growth_rate: Math.min(0.40, base.revenue_growth_rate * 1.5),
+      target_operating_margin: Math.min(0.60, base.target_operating_margin + Math.max(0.02, base.target_operating_margin * 0.15)),
+      equity_risk_premium: Math.max(0.02, base.equity_risk_premium - 0.01),
+    }
+  }
+
+  async function handleRunScenarios() {
+    if (!result || !assumptions || scenarioLoading) return
+    setScenarioLoading(true)
+    try {
+      const bearA = buildBearAssumptions(assumptions)
+      const bullA = buildBullAssumptions(assumptions)
+      const [bear, bull] = await Promise.all([
+        recalculate(result.ticker, bearA),
+        recalculate(result.ticker, bullA),
+      ])
+      setScenarios({ bear, bull, bearAssumptions: bearA, bullAssumptions: bullA })
+    } catch { /* silently fail */ } finally { setScenarioLoading(false) }
+  }
 
   // ── portfolio helpers ─────────────────────────────────────────────────────
   function savePortfolio(updated) {
@@ -48,6 +86,7 @@ export default function App() {
       multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
       price_at_add: result.current_price,
       added_at: new Date().toISOString(),
+      history: [{ date: new Date().toISOString(), composite_price: result.composite_price, current_price: result.current_price, upside_pct: result.upside_pct }],
     }])
   }
 
@@ -85,6 +124,7 @@ export default function App() {
               dcf_price: res.dcf_price,
               multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
               refreshed_at: new Date().toISOString(),
+              history: [...(p.history ?? []), { date: new Date().toISOString(), composite_price: res.composite_price, current_price: res.current_price, upside_pct: res.upside_pct }].slice(-20),
             }
           } catch { return p }
         })
@@ -229,6 +269,14 @@ export default function App() {
                     onAddToPortfolio={handleAddToPortfolio}
                   />
                   <ValuationChart projections={result.dcf_detail?.projections} isDark={isDark} />
+                  <ScenarioPanel
+                    result={result}
+                    assumptions={assumptions}
+                    isDark={isDark}
+                    scenarios={scenarios}
+                    loading={scenarioLoading}
+                    onRun={handleRunScenarios}
+                  />
                 </div>
                 <div className="lg:col-span-1">
                   <AssumptionsPanel
