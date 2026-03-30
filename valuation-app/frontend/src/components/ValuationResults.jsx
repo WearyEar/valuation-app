@@ -64,9 +64,11 @@ export default function ValuationResults({ result, isInPortfolio, onAddToPortfol
   if (!result) return null
 
   const { dcf_detail: dcf, multiples_detail: md, assumptions: a } = result
+  const ad = result.analyst_data
   const maxBar = Math.max(
     result.current_price, result.dcf_price,
     md.ev_ebitda_implied_price || 0, md.pe_implied_price || 0, md.ps_implied_price || 0,
+    ad?.mean_target || 0,
   ) * 1.1
 
   return (
@@ -132,11 +134,66 @@ export default function ValuationResults({ result, isInPortfolio, onAddToPortfol
           <PriceBar label="EV/EBITDA"        value={md.ev_ebitda_implied_price}  current={result.current_price} max={maxBar} />
           <PriceBar label="P/E"              value={md.pe_implied_price}         current={result.current_price} max={maxBar} />
           <PriceBar label="P/S"              value={md.ps_implied_price}         current={result.current_price} max={maxBar} />
+          {ad?.mean_target && (
+            <PriceBar label="Analyst Mean" value={ad.mean_target} current={result.current_price} max={maxBar} />
+          )}
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-600 mt-3">
-          Gray marker = current price. Composite = 60% DCF + 40% multiples average.
+          Gray marker = current price. Composite = 60% DCF + 40% multiples average. Analyst Mean shown for reference only.
         </p>
       </div>
+
+      {/* Analyst Consensus */}
+      {ad && (
+        <div className="card">
+          <p className="label mb-3">Analyst Consensus</p>
+          <div className="flex flex-wrap items-center gap-4">
+            {ad.recommendation && (
+              <div className="flex flex-col items-center">
+                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                  ad.recommendation === 'Strong Buy' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' :
+                  ad.recommendation === 'Buy'        ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' :
+                  ad.recommendation === 'Hold'       ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400' :
+                  'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                }`}>{ad.recommendation}</span>
+                {ad.recommendation_mean != null && (
+                  <span className="text-xs text-gray-400 dark:text-gray-600 mt-1">
+                    score {ad.recommendation_mean.toFixed(1)} / 5.0
+                  </span>
+                )}
+              </div>
+            )}
+            {ad.mean_target && (
+              <div className="stat-block">
+                <span className="stat-label">Mean Target</span>
+                <span className={`stat-value ${ad.mean_target > result.current_price ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {fmt(ad.mean_target)}
+                </span>
+                {ad.num_analysts != null && (
+                  <span className="text-xs text-gray-400 dark:text-gray-600">{ad.num_analysts} analyst{ad.num_analysts !== 1 ? 's' : ''}</span>
+                )}
+              </div>
+            )}
+            {ad.high_target && ad.low_target && (
+              <div className="stat-block">
+                <span className="stat-label">Target Range</span>
+                <span className="stat-value text-gray-700 dark:text-gray-300 text-sm">
+                  {fmt(ad.low_target)} – {fmt(ad.high_target)}
+                </span>
+              </div>
+            )}
+            {ad.median_target && (
+              <div className="stat-block">
+                <span className="stat-label">Median Target</span>
+                <span className="stat-value text-gray-700 dark:text-gray-300 text-sm">{fmt(ad.median_target)}</span>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-600 mt-3">
+            Analyst targets are for reference only and are not incorporated into the composite price.
+          </p>
+        </div>
+      )}
 
       {/* DCF Detail & Multiples */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

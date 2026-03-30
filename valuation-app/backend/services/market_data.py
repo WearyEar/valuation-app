@@ -67,6 +67,15 @@ class FinancialData:
 
     warnings: list[str] = field(default_factory=list)
 
+    # Analyst consensus
+    analyst_mean_target: Optional[float] = None
+    analyst_median_target: Optional[float] = None
+    analyst_high_target: Optional[float] = None
+    analyst_low_target: Optional[float] = None
+    analyst_num_opinions: Optional[int] = None
+    analyst_recommendation_key: Optional[str] = None
+    analyst_recommendation_mean: Optional[float] = None
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -329,6 +338,25 @@ def _fetch(ticker: str) -> FinancialData:
 
     revenue_history = _revenue_history(t)
 
+    # ── analyst consensus ─────────────────────────────────────────────────────
+    _rec_map = {"strongbuy": "Strong Buy", "buy": "Buy", "hold": "Hold",
+                "underperform": "Underperform", "sell": "Sell"}
+    _rec_raw = (info.get("recommendationKey") or "").lower().replace(" ", "").replace("_", "")
+
+    def _ap(val):
+        v = _safe(val, None)
+        return v if v and v > 0 else None
+
+    analyst_mean_target         = _ap(info.get("targetMeanPrice"))
+    analyst_median_target       = _ap(info.get("targetMedianPrice"))
+    analyst_high_target         = _ap(info.get("targetHighPrice"))
+    analyst_low_target          = _ap(info.get("targetLowPrice"))
+    _n                          = info.get("numberOfAnalystOpinions")
+    analyst_num_opinions        = int(_n) if _n is not None else None
+    analyst_rec_key             = _rec_map.get(_rec_raw)
+    _rm                         = _safe(info.get("recommendationMean"), None)
+    analyst_recommendation_mean = _rm if _rm and _rm > 0 else None
+
     return FinancialData(
         ticker=ticker,
         name=name,
@@ -358,6 +386,13 @@ def _fetch(ticker: str) -> FinancialData:
         sales_to_capital=sales_to_capital,
         revenue_history=revenue_history,
         warnings=warnings,
+        analyst_mean_target=analyst_mean_target,
+        analyst_median_target=analyst_median_target,
+        analyst_high_target=analyst_high_target,
+        analyst_low_target=analyst_low_target,
+        analyst_num_opinions=analyst_num_opinions,
+        analyst_recommendation_key=analyst_rec_key,
+        analyst_recommendation_mean=analyst_recommendation_mean,
     )
 
 

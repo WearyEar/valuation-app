@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services import damodaran, market_data
 from valuation import dcf as dcf_engine, multiples as mult_engine
-from valuation.schemas import Assumptions, RecalculateRequest, ValuationResult
+from valuation.schemas import Assumptions, AnalystData, RecalculateRequest, ValuationResult
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,6 +70,18 @@ def _run_full_valuation(
         else 0.0
     )
 
+    analyst_data = None
+    if fin.analyst_mean_target is not None or fin.analyst_recommendation_key is not None:
+        analyst_data = AnalystData(
+            mean_target=fin.analyst_mean_target,
+            median_target=fin.analyst_median_target,
+            high_target=fin.analyst_high_target,
+            low_target=fin.analyst_low_target,
+            num_analysts=fin.analyst_num_opinions,
+            recommendation=fin.analyst_recommendation_key,
+            recommendation_mean=fin.analyst_recommendation_mean,
+        )
+
     return ValuationResult(
         ticker=fin.ticker,
         name=fin.name,
@@ -94,6 +106,7 @@ def _run_full_valuation(
         total_debt=fin.total_debt,
         cash=fin.cash,
         warnings=fin.warnings,
+        analyst_data=analyst_data,
         data_as_of=datetime.now().strftime("%Y-%m-%d"),
     )
 

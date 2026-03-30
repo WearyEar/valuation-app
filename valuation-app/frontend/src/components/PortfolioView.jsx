@@ -130,7 +130,7 @@ function exportCSV(rows) {
   const headers = [
     'Ticker', 'Company', 'Sector', 'Industry',
     'Current Price', 'Price at Add', 'Drift %',
-    'Target Price', 'Upside %', 'DCF Price', 'Multiples Avg',
+    'Target Price', 'Upside %', 'DCF Price', 'Multiples Avg', 'Analyst Target',
     'Shares', 'Cost/Share', 'Market Value', 'Total Cost', 'P&L $', 'P&L %', 'Weight %',
     'Added Date', 'Last Refreshed', 'Notes',
   ]
@@ -140,6 +140,7 @@ function exportCSV(rows) {
     p.drift != null ? p.drift.toFixed(1) : '',
     p.composite_price?.toFixed(2) ?? '', p.upside_pct?.toFixed(1) ?? '',
     p.dcf_price?.toFixed(2) ?? '', p.multiples_avg_price?.toFixed(2) ?? '',
+    p.analyst_mean_target?.toFixed(2) ?? '',
     p.shares ?? '', p.cost_basis?.toFixed(2) ?? '',
     p.market_value?.toFixed(2) ?? '', p.total_cost?.toFixed(2) ?? '',
     p.pnl_dollar?.toFixed(2) ?? '', p.pnl_pct?.toFixed(1) ?? '',
@@ -534,6 +535,7 @@ export default function PortfolioView({
                   <SortTh col="upside_pct"          label="Upside"        sort={sort} onSort={toggleSort} right />
                   <SortTh col="dcf_price"           label="DCF"           sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   <SortTh col="multiples_avg_price" label="Multiples Avg" sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
+                  <SortTh col="analyst_mean_target" label="Analyst"       sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   <SortTh col="added_at"            label="Added"         sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   <SortTh col="target_trend_pct"    label="Trend"         sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
                   {showPositions && <>
@@ -581,6 +583,9 @@ export default function PortfolioView({
                       </td>
                       <td className="py-3 pr-3 text-xs font-mono text-gray-500 text-right hidden lg:table-cell">{fmt(p.dcf_price)}</td>
                       <td className="py-3 pr-3 text-xs font-mono text-gray-500 text-right hidden lg:table-cell">{fmt(p.multiples_avg_price)}</td>
+                      <td className="py-3 pr-3 text-xs font-mono text-gray-500 text-right hidden lg:table-cell">
+                        {p.analyst_mean_target != null ? fmt(p.analyst_mean_target) : <span className="text-gray-400 dark:text-gray-600">—</span>}
+                      </td>
                       <td className="py-3 pr-3 text-xs text-gray-500 text-right hidden lg:table-cell whitespace-nowrap">{fmtDate(p.added_at)}</td>
                       <td className="py-3 pr-3 hidden lg:table-cell">
                         <Sparkline data={p.history} />

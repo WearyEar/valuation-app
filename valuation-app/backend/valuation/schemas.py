@@ -58,6 +58,16 @@ class MultiplesDetail(BaseModel):
     ps_implied_price: Optional[float] = None
 
 
+class AnalystData(BaseModel):
+    mean_target: Optional[float] = None
+    median_target: Optional[float] = None
+    high_target: Optional[float] = None
+    low_target: Optional[float] = None
+    num_analysts: Optional[int] = None
+    recommendation: Optional[str] = None   # "Strong Buy" | "Buy" | "Hold" | "Underperform" | "Sell"
+    recommendation_mean: Optional[float] = None  # raw 1.0–5.0 scale (1=Strong Buy, 5=Sell)
+
+
 class ValuationResult(BaseModel):
     ticker: str
     name: str
@@ -90,6 +100,7 @@ class ValuationResult(BaseModel):
     cash: float
 
     warnings: list[str]
+    analyst_data: Optional[AnalystData] = None
     data_as_of: str  # e.g., "2024 annual"
 
 

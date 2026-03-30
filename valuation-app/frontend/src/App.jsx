@@ -84,6 +84,8 @@ export default function App() {
       current_price: result.current_price, composite_price: result.composite_price,
       upside_pct: result.upside_pct, dcf_price: result.dcf_price,
       multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+      analyst_mean_target_at_add: result.analyst_data?.mean_target ?? null,
+      analyst_mean_target: result.analyst_data?.mean_target ?? null,
       price_at_add: result.current_price,
       added_at: new Date().toISOString(),
       history: [{ date: new Date().toISOString(), composite_price: result.composite_price, current_price: result.current_price, upside_pct: result.upside_pct }],
@@ -123,6 +125,7 @@ export default function App() {
               upside_pct: res.upside_pct,
               dcf_price: res.dcf_price,
               multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+              analyst_mean_target: res.analyst_data?.mean_target ?? null,
               refreshed_at: new Date().toISOString(),
               history: [...(p.history ?? []), { date: new Date().toISOString(), composite_price: res.composite_price, current_price: res.current_price, upside_pct: res.upside_pct }].slice(-20),
             }
