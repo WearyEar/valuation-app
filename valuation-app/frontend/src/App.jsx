@@ -3,6 +3,7 @@ import SearchBar from './components/SearchBar'
 import ValuationResults from './components/ValuationResults'
 import AssumptionsPanel from './components/AssumptionsPanel'
 import ValuationChart from './components/ValuationChart'
+import PortfolioView from './components/PortfolioView'
 import { valuate, recalculate } from './api'
 
 export default function App() {
@@ -11,8 +12,45 @@ export default function App() {
   const [result, setResult]             = useState(null)
   const [assumptions, setAssumptions]   = useState(null)
   const [recalculating, setRecalc]      = useState(false)
+  const [activeTab, setActiveTab]       = useState('search')
+  const [portfolio, setPortfolio]       = useState(() => {
+    try { return JSON.parse(localStorage.getItem('valuation_portfolio')) ?? [] }
+    catch { return [] }
+  })
 
   const debounceRef = useRef(null)
+
+  // ── portfolio helpers ─────────────────────────────────────────────────────
+  function savePortfolio(updated) {
+    setPortfolio(updated)
+    localStorage.setItem('valuation_portfolio', JSON.stringify(updated))
+  }
+
+  function handleAddToPortfolio() {
+    if (!result || portfolio.some(p => p.ticker === result.ticker)) return
+    const md = result.multiples_detail
+    const vals = [md.ev_ebitda_implied_price, md.pe_implied_price, md.ps_implied_price]
+      .filter(v => v != null && v > 0)
+    savePortfolio([...portfolio, {
+      ticker: result.ticker, name: result.name, sector: result.sector,
+      damodaran_industry: result.damodaran_industry,
+      current_price: result.current_price, composite_price: result.composite_price,
+      upside_pct: result.upside_pct, dcf_price: result.dcf_price,
+      multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+      added_at: new Date().toISOString(),
+    }])
+  }
+
+  function handleRemoveFromPortfolio(ticker) {
+    savePortfolio(portfolio.filter(p => p.ticker !== ticker))
+  }
+
+  function handlePortfolioRowClick(ticker) {
+    setActiveTab('search')
+    handleSelect(ticker)
+  }
+
+  const isInPortfolio = portfolio.some(p => p.ticker === result?.ticker)
 
   // ── search / initial valuation ────────────────────────────────────────────
   async function handleSelect(ticker) {
@@ -63,72 +101,117 @@ export default function App() {
             </h1>
             <p className="text-xs text-gray-500">Damodaran DCF + Multiples</p>
           </div>
-          <SearchBar onSelect={handleSelect} loading={loading} />
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                activeTab === 'search'
+                  ? 'bg-gray-700 text-gray-100'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              Search
+            </button>
+            <button
+              onClick={() => setActiveTab('portfolio')}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                activeTab === 'portfolio'
+                  ? 'bg-gray-700 text-gray-100'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              Portfolio
+              {portfolio.length > 0 && (
+                <span className="text-xs bg-blue-600 text-white rounded-full px-1.5 py-0 leading-4 min-w-[18px] text-center">
+                  {portfolio.length}
+                </span>
+              )}
+            </button>
+          </div>
+          {activeTab === 'search' && (
+            <SearchBar onSelect={handleSelect} loading={loading} />
+          )}
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-4">
-        {/* ── Loading state ─────────────────────────────────────── */}
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            <LoadingSpinner />
-            <p className="text-sm text-gray-400">
-              Fetching financials and running valuation…
-            </p>
-            <p className="text-xs text-gray-600">
-              (First run downloads Damodaran datasets — may take ~15s)
-            </p>
-          </div>
+        {activeTab === 'search' && (
+          <>
+            {/* ── Loading state ─────────────────────────────────────── */}
+            {loading && (
+              <div className="flex flex-col items-center justify-center py-24 gap-4">
+                <LoadingSpinner />
+                <p className="text-sm text-gray-400">
+                  Fetching financials and running valuation…
+                </p>
+                <p className="text-xs text-gray-600">
+                  (First run downloads Damodaran datasets — may take ~15s)
+                </p>
+              </div>
+            )}
+
+            {/* ── Error state ───────────────────────────────────────── */}
+            {!loading && error && (
+              <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-5">
+                <p className="text-sm font-semibold text-red-400 mb-1">Valuation Error</p>
+                <p className="text-sm text-red-200/70">{error}</p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Try a different ticker (US equities only). Non-standard filers (SPACs,
+                  foreign privates) may not have sufficient EDGAR data.
+                </p>
+              </div>
+            )}
+
+            {/* ── Empty state ───────────────────────────────────────── */}
+            {!loading && !error && !result && (
+              <div className="flex flex-col items-center justify-center py-28 gap-3 text-center">
+                <div className="text-5xl mb-2">📊</div>
+                <h2 className="text-lg font-semibold text-gray-200">
+                  Intrinsic Value, Damodaran-Style
+                </h2>
+                <p className="text-sm text-gray-500 max-w-sm">
+                  Enter a US stock ticker or company name to run a full DCF + relative
+                  valuation using Damodaran's sector data and SEC filings.
+                </p>
+                <div className="text-xs text-gray-600 mt-2 space-y-0.5">
+                  <p>Sources: SEC EDGAR · yfinance · Damodaran @ NYU Stern</p>
+                </div>
+              </div>
+            )}
+
+            {/* ── Results ───────────────────────────────────────────── */}
+            {!loading && result && assumptions && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Left column: results + chart */}
+                <div className="lg:col-span-2 space-y-4">
+                  <ValuationResults
+                    result={result}
+                    isInPortfolio={isInPortfolio}
+                    onAddToPortfolio={handleAddToPortfolio}
+                  />
+                  <ValuationChart projections={result.dcf_detail?.projections} />
+                </div>
+
+                {/* Right column: assumptions */}
+                <div className="lg:col-span-1">
+                  <AssumptionsPanel
+                    assumptions={assumptions}
+                    onChange={handleAssumptionsChange}
+                    wacc={result.dcf_detail?.wacc}
+                    recalculating={recalculating}
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {/* ── Error state ───────────────────────────────────────── */}
-        {!loading && error && (
-          <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-5">
-            <p className="text-sm font-semibold text-red-400 mb-1">Valuation Error</p>
-            <p className="text-sm text-red-200/70">{error}</p>
-            <p className="text-xs text-gray-500 mt-2">
-              Try a different ticker (US equities only). Non-standard filers (SPACs,
-              foreign privates) may not have sufficient EDGAR data.
-            </p>
-          </div>
-        )}
-
-        {/* ── Empty state ───────────────────────────────────────── */}
-        {!loading && !error && !result && (
-          <div className="flex flex-col items-center justify-center py-28 gap-3 text-center">
-            <div className="text-5xl mb-2">📊</div>
-            <h2 className="text-lg font-semibold text-gray-200">
-              Intrinsic Value, Damodaran-Style
-            </h2>
-            <p className="text-sm text-gray-500 max-w-sm">
-              Enter a US stock ticker or company name to run a full DCF + relative
-              valuation using Damodaran's sector data and SEC filings.
-            </p>
-            <div className="text-xs text-gray-600 mt-2 space-y-0.5">
-              <p>Sources: SEC EDGAR · yfinance · Damodaran @ NYU Stern</p>
-            </div>
-          </div>
-        )}
-
-        {/* ── Results ───────────────────────────────────────────── */}
-        {!loading && result && assumptions && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Left column: results + chart */}
-            <div className="lg:col-span-2 space-y-4">
-              <ValuationResults result={result} />
-              <ValuationChart projections={result.dcf_detail?.projections} />
-            </div>
-
-            {/* Right column: assumptions */}
-            <div className="lg:col-span-1">
-              <AssumptionsPanel
-                assumptions={assumptions}
-                onChange={handleAssumptionsChange}
-                wacc={result.dcf_detail?.wacc}
-                recalculating={recalculating}
-              />
-            </div>
-          </div>
+        {activeTab === 'portfolio' && (
+          <PortfolioView
+            portfolio={portfolio}
+            onRemove={handleRemoveFromPortfolio}
+            onRowClick={handlePortfolioRowClick}
+          />
         )}
       </main>
 

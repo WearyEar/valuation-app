@@ -65,7 +65,7 @@ function PriceBar({ label, value, current, max }) {
   )
 }
 
-export default function ValuationResults({ result }) {
+export default function ValuationResults({ result, isInPortfolio, onAddToPortfolio }) {
   if (!result) return null
 
   const { dcf_detail: dcf, multiples_detail: md, assumptions: a } = result
@@ -96,9 +96,20 @@ export default function ValuationResults({ result }) {
             </div>
             <p className="text-xs text-gray-500 mt-1">{result.sector} · {result.industry}</p>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-500">Market Cap</p>
-            <p className="text-sm font-semibold text-gray-200">{fmtBig(result.market_cap)}</p>
+          <div className="flex flex-col items-end gap-2">
+            <div className="text-right">
+              <p className="text-xs text-gray-500">Market Cap</p>
+              <p className="text-sm font-semibold text-gray-200">{fmtBig(result.market_cap)}</p>
+            </div>
+            <button
+              onClick={onAddToPortfolio}
+              disabled={isInPortfolio}
+              className={isInPortfolio
+                ? 'text-xs rounded-lg px-3 py-1.5 bg-gray-800 text-gray-500 border border-gray-700 cursor-default'
+                : 'text-xs rounded-lg px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors'}
+            >
+              {isInPortfolio ? 'In Portfolio' : '+ Add to Portfolio'}
+            </button>
           </div>
         </div>
       </div>
