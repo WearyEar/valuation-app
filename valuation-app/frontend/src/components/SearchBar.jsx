@@ -9,7 +9,6 @@ export default function SearchBar({ onSelect, loading }) {
   const debounceRef = useRef(null)
   const wrapRef = useRef(null)
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
@@ -21,14 +20,8 @@ export default function SearchBar({ onSelect, loading }) {
   function handleChange(e) {
     const val = e.target.value
     setQuery(val)
-
     clearTimeout(debounceRef.current)
-    if (val.trim().length < 1) {
-      setSuggestions([])
-      setOpen(false)
-      return
-    }
-
+    if (val.trim().length < 1) { setSuggestions([]); setOpen(false); return }
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
       try {
@@ -45,17 +38,11 @@ export default function SearchBar({ onSelect, loading }) {
 
   function handleSubmit(e) {
     e.preventDefault()
-    if (query.trim()) {
-      setOpen(false)
-      onSelect(query.trim().toUpperCase())
-    }
+    if (query.trim()) { setOpen(false); onSelect(query.trim().toUpperCase()) }
   }
 
   function pickSuggestion(s) {
-    setQuery(s.ticker)
-    setOpen(false)
-    setSuggestions([])
-    onSelect(s.ticker)
+    setQuery(s.ticker); setOpen(false); setSuggestions([]); onSelect(s.ticker)
   }
 
   return (
@@ -76,28 +63,21 @@ export default function SearchBar({ onSelect, loading }) {
             </div>
           )}
         </div>
-        <button
-          type="submit"
-          className="btn-primary whitespace-nowrap"
-          disabled={loading || !query.trim()}
-        >
+        <button type="submit" className="btn-primary whitespace-nowrap" disabled={loading || !query.trim()}>
           {loading ? 'Valuing…' : 'Value It'}
         </button>
       </form>
 
-      {/* Suggestions dropdown */}
       {open && suggestions.length > 0 && (
-        <ul className="absolute z-50 top-full mt-1 w-full card p-1 shadow-xl border-gray-700">
+        <ul className="absolute z-50 top-full mt-1 w-full card p-1 shadow-xl border-gray-200 dark:border-gray-700">
           {suggestions.map((s) => (
             <li key={s.ticker}>
               <button
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-800 flex items-center gap-3 text-sm"
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-3 text-sm"
                 onMouseDown={() => pickSuggestion(s)}
               >
-                <span className="font-mono font-semibold text-blue-400 w-16 shrink-0">
-                  {s.ticker}
-                </span>
-                <span className="text-gray-300 truncate">{s.name}</span>
+                <span className="font-mono font-semibold text-blue-600 dark:text-blue-400 w-16 shrink-0">{s.ticker}</span>
+                <span className="text-gray-700 dark:text-gray-300 truncate">{s.name}</span>
                 <span className="text-gray-500 text-xs ml-auto shrink-0">{s.exchange}</span>
               </button>
             </li>
@@ -110,19 +90,9 @@ export default function SearchBar({ onSelect, loading }) {
 
 function Spinner({ size = 16 }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      className="animate-spin text-gray-400"
-      fill="none"
-    >
+    <svg width={size} height={size} viewBox="0 0 24 24" className="animate-spin text-gray-400" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"
-      />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
     </svg>
   )
 }
