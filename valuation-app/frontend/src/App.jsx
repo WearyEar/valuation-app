@@ -38,12 +38,17 @@ export default function App() {
       current_price: result.current_price, composite_price: result.composite_price,
       upside_pct: result.upside_pct, dcf_price: result.dcf_price,
       multiples_avg_price: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+      price_at_add: result.current_price,
       added_at: new Date().toISOString(),
     }])
   }
 
   function handleRemoveFromPortfolio(ticker) {
     savePortfolio(portfolio.filter(p => p.ticker !== ticker))
+  }
+
+  function handleUpdateNote(ticker, note) {
+    savePortfolio(portfolio.map(p => p.ticker === ticker ? { ...p, note } : p))
   }
 
   async function handleRefreshAll() {
@@ -245,6 +250,7 @@ export default function App() {
             onRowClick={handlePortfolioRowClick}
             onRefreshAll={handleRefreshAll}
             refreshing={refreshing}
+            onUpdateNote={handleUpdateNote}
           />
         )}
       </main>
