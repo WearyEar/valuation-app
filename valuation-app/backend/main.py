@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services import damodaran, market_data
 from valuation import dcf as dcf_engine, multiples as mult_engine
-from valuation.schemas import Assumptions, AnalystData, RecalculateRequest, ValuationResult
+from valuation.schemas import Assumptions, AnalystData, RecalculateRequest, SensitivityRequest, SensitivityResponse, ValuationResult
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -108,6 +108,9 @@ def _run_full_valuation(
         warnings=fin.warnings,
         analyst_data=analyst_data,
         data_as_of=datetime.now().strftime("%Y-%m-%d"),
+        revenue_history=fin.revenue_history,
+        ebitda_history=fin.ebitda_history,
+        net_income_history=fin.net_income_history,
     )
 
 
@@ -165,6 +168,52 @@ async def recalculate(req: RecalculateRequest):
 
     dam = damodaran.get_sector_data(fin.industry, fin.sector)
     return _run_full_valuation(fin, req.assumptions, dam)
+
+
+@app.post("/api/sensitivity")
+async def sensitivity(req: SensitivityRequest):
+    """
+    Generate a 5x5 DCF sensitivity matrix varying revenue growth (rows) and
+    operating margin (cols) around the base assumptions.
+    """
+    ticker = req.ticker.upper().strip()
+    try:
+        fin = market_data.get_financial_data(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Data fetch failed: {exc}")
+
+    a = req.assumptions
+    step_g = max(0.02, abs(a.revenue_growth_rate) * 0.25)
+    step_m = max(0.015, abs(a.target_operating_margin) * 0.20)
+
+    def clamp(v, lo, hi):
+        return max(lo, min(hi, v))
+
+    rows = [clamp(a.revenue_growth_rate + (i - 2) * step_g, -0.15, 0.60) for i in range(5)]
+    cols = [clamp(a.target_operating_margin + (j - 2) * step_m, -0.20, 0.80) for j in range(5)]
+
+    matrix = []
+    for g in rows:
+        row_prices = []
+        for m in cols:
+            mod = Assumptions(**{**a.model_dump(), "revenue_growth_rate": g, "target_operating_margin": m})
+            dcf = dcf_engine.run_dcf(
+                fin.revenue, fin.market_cap, fin.total_debt,
+                fin.cash, fin.shares_outstanding, mod,
+            )
+            row_prices.append(round(dcf.price, 2))
+        matrix.append(row_prices)
+
+    return SensitivityResponse(
+        rows=rows,
+        cols=cols,
+        dcf_prices=matrix,
+        base_row_idx=2,
+        base_col_idx=2,
+        current_price=fin.current_price,
+    )
 
 
 @app.get("/health")

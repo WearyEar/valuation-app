@@ -27,3 +27,13 @@ export async function recalculate(ticker, assumptions) {
   }
   return res.json()
 }
+
+export async function sensitivity(ticker, assumptions) {
+  const res = await fetch(`${BASE}/sensitivity`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker, assumptions }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}

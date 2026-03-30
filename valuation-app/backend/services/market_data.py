@@ -64,6 +64,8 @@ class FinancialData:
     invested_capital: float
     sales_to_capital: float
     revenue_history: list[float] = field(default_factory=list)  # 5 most recent annual
+    ebitda_history: list[float] = field(default_factory=list)
+    net_income_history: list[float] = field(default_factory=list)
 
     warnings: list[str] = field(default_factory=list)
 
@@ -147,6 +149,23 @@ def _revenue_history(ticker_obj: yf.Ticker) -> list[float]:
                     vals = [_safe(v, None) for v in fin.loc[idx]]
                     vals = [v for v in vals if v is not None and v > 0]
                     return list(reversed(vals[:5]))  # oldest → newest
+    except Exception:
+        pass
+    return []
+
+
+def _income_history(ticker_obj: yf.Ticker, *candidates: str) -> list[float]:
+    """Return up to 5 years of annual values for a given income statement line (oldest to newest)."""
+    try:
+        fin = ticker_obj.financials
+        if fin is None or fin.empty:
+            return []
+        for label in candidates:
+            for idx in fin.index:
+                if str(idx).lower() == label.lower():
+                    vals = [_safe(v, None) for v in fin.loc[idx]]
+                    vals = [v for v in vals if v is not None]
+                    return list(reversed(vals[:5]))
     except Exception:
         pass
     return []
@@ -336,7 +355,9 @@ def _fetch(ticker: str) -> FinancialData:
 
     sales_to_capital = revenue / invested_capital if invested_capital > 0 else 1.5
 
-    revenue_history = _revenue_history(t)
+    revenue_history    = _revenue_history(t)
+    ebitda_history     = _income_history(t, "EBITDA", "Normalized EBITDA")
+    net_income_history = _income_history(t, "Net Income", "Net Income Common Stockholders")
 
     # ── analyst consensus ─────────────────────────────────────────────────────
     _rec_map = {"strongbuy": "Strong Buy", "buy": "Buy", "hold": "Hold",
@@ -385,6 +406,8 @@ def _fetch(ticker: str) -> FinancialData:
         invested_capital=invested_capital,
         sales_to_capital=sales_to_capital,
         revenue_history=revenue_history,
+        ebitda_history=ebitda_history,
+        net_income_history=net_income_history,
         warnings=warnings,
         analyst_mean_target=analyst_mean_target,
         analyst_median_target=analyst_median_target,

@@ -5,7 +5,9 @@ import AssumptionsPanel from './components/AssumptionsPanel'
 import ValuationChart from './components/ValuationChart'
 import PortfolioView from './components/PortfolioView'
 import ScenarioPanel from './components/ScenarioPanel'
-import { valuate, recalculate } from './api'
+import FinancialsChart from './components/FinancialsChart'
+import SensitivityTable from './components/SensitivityTable'
+import { valuate, recalculate, sensitivity } from './api'
 
 export default function App() {
   const [loading, setLoading]         = useState(false)
@@ -22,6 +24,8 @@ export default function App() {
   const [theme, setTheme]             = useState(() => localStorage.getItem('theme') ?? 'dark')
   const [scenarios, setScenarios]     = useState(null)
   const [scenarioLoading, setScenarioLoading] = useState(false)
+  const [sensitivityData, setSensitivityData] = useState(null)
+  const [sensitivityLoading, setSensitivityLoading] = useState(false)
 
   const isDark = theme === 'dark'
 
@@ -30,7 +34,7 @@ export default function App() {
     localStorage.setItem('theme', theme)
   }, [theme, isDark])
 
-  useEffect(() => { setScenarios(null) }, [result?.ticker])
+  useEffect(() => { setScenarios(null); setSensitivityData(null) }, [result?.ticker])
 
   const debounceRef = useRef(null)
 
@@ -51,6 +55,15 @@ export default function App() {
       target_operating_margin: Math.min(0.60, base.target_operating_margin + Math.max(0.02, base.target_operating_margin * 0.15)),
       equity_risk_premium: Math.max(0.02, base.equity_risk_premium - 0.01),
     }
+  }
+
+  async function handleRunSensitivity() {
+    if (!result || !assumptions || sensitivityLoading) return
+    setSensitivityLoading(true)
+    try {
+      const data = await sensitivity(result.ticker, assumptions)
+      setSensitivityData(data)
+    } catch { /* silently fail */ } finally { setSensitivityLoading(false) }
   }
 
   async function handleRunScenarios() {
@@ -272,6 +285,7 @@ export default function App() {
                     onAddToPortfolio={handleAddToPortfolio}
                   />
                   <ValuationChart projections={result.dcf_detail?.projections} isDark={isDark} />
+                  <FinancialsChart result={result} isDark={isDark} />
                   <ScenarioPanel
                     result={result}
                     assumptions={assumptions}
@@ -279,6 +293,13 @@ export default function App() {
                     scenarios={scenarios}
                     loading={scenarioLoading}
                     onRun={handleRunScenarios}
+                  />
+                  <SensitivityTable
+                    result={result}
+                    assumptions={assumptions}
+                    sensitivityData={sensitivityData}
+                    loading={sensitivityLoading}
+                    onRun={handleRunSensitivity}
                   />
                 </div>
                 <div className="lg:col-span-1">

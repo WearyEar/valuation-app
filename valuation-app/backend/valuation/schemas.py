@@ -103,7 +103,25 @@ class ValuationResult(BaseModel):
     analyst_data: Optional[AnalystData] = None
     data_as_of: str  # e.g., "2024 annual"
 
+    revenue_history: list[float] = []
+    ebitda_history: list[float] = []
+    net_income_history: list[float] = []
+
 
 class RecalculateRequest(BaseModel):
     ticker: str
     assumptions: Assumptions
+
+
+class SensitivityRequest(BaseModel):
+    ticker: str
+    assumptions: Assumptions
+
+
+class SensitivityResponse(BaseModel):
+    rows: list[float]               # 5 growth rate values
+    cols: list[float]               # 5 margin values
+    dcf_prices: list[list[float]]   # [row_idx][col_idx], 5x5
+    base_row_idx: int               # always 2
+    base_col_idx: int               # always 2
+    current_price: float
