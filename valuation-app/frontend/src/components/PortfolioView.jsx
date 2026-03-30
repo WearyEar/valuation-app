@@ -4,12 +4,24 @@ import {
   ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts'
 
+// ── Formatters ───────────────────────────────────────────────────────────────
+
 function fmt(n, decimals = 2) {
   if (n == null) return '—'
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD',
     minimumFractionDigits: decimals, maximumFractionDigits: decimals,
   }).format(n)
+}
+
+function fmtBig(n) {
+  if (n == null) return '—'
+  const abs = Math.abs(n)
+  const sign = n < 0 ? '-' : ''
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`
+  return `${n < 0 ? '-$' : '$'}${abs.toFixed(0)}`
 }
 
 function fmtDate(iso) {
@@ -22,12 +34,19 @@ function fmtDrift(d) {
   return `${d >= 0 ? '+' : ''}${d.toFixed(1)}%`
 }
 
+function fmtPct(n) {
+  if (n == null) return '—'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
+}
+
+// ── Sub-components ───────────────────────────────────────────────────────────
+
 function SortTh({ col, label, sort, onSort, right = false, extraClass = '' }) {
   const active = sort.col === col
   return (
     <th
       onClick={() => onSort(col)}
-      className={`text-xs font-medium pb-3 pr-4 cursor-pointer select-none group ${extraClass}`}
+      className={`text-xs font-medium pb-3 pr-3 cursor-pointer select-none group ${extraClass}`}
     >
       <span className={`flex items-center gap-1 text-gray-500 hover:text-gray-300 transition-colors whitespace-nowrap ${right ? 'justify-end' : ''}`}>
         {label}
@@ -52,10 +71,72 @@ function ChartTooltip({ active, payload }) {
   )
 }
 
+function InlineInput({ value, onChange, placeholder, right = false, width = 'w-20', type = 'text' }) {
+  return (
+    <input
+      type={type}
+      min={type === 'number' ? 0 : undefined}
+      step={type === 'number' ? 'any' : undefined}
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      onClick={e => e.stopPropagation()}
+      placeholder={placeholder}
+      className={`bg-transparent text-xs font-mono text-gray-400 placeholder-gray-700 focus:outline-none focus:text-gray-200 border-b border-transparent focus:border-gray-600 transition-colors ${width} ${right ? 'text-right' : ''}`}
+    />
+  )
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+function exportCSV(rows) {
+  const headers = [
+    'Ticker', 'Company', 'Sector', 'Industry',
+    'Current Price', 'Price at Add', 'Drift %',
+    'Target Price', 'Upside %', 'DCF Price', 'Multiples Avg',
+    'Shares', 'Cost/Share', 'Market Value', 'Total Cost', 'P&L $', 'P&L %', 'Weight %',
+    'Added Date', 'Last Refreshed', 'Notes',
+  ]
+  const data = rows.map(p => [
+    p.ticker, p.name, p.sector || '', p.damodaran_industry || '',
+    p.current_price?.toFixed(2) ?? '',
+    p.price_at_add?.toFixed(2) ?? '',
+    p.drift != null ? p.drift.toFixed(1) : '',
+    p.composite_price?.toFixed(2) ?? '',
+    p.upside_pct?.toFixed(1) ?? '',
+    p.dcf_price?.toFixed(2) ?? '',
+    p.multiples_avg_price?.toFixed(2) ?? '',
+    p.shares ?? '',
+    p.cost_basis?.toFixed(2) ?? '',
+    p.market_value?.toFixed(2) ?? '',
+    p.total_cost?.toFixed(2) ?? '',
+    p.pnl_dollar?.toFixed(2) ?? '',
+    p.pnl_pct?.toFixed(1) ?? '',
+    p.weight_pct?.toFixed(1) ?? '',
+    p.added_at ? fmtDate(p.added_at) : '',
+    p.refreshed_at ? fmtDate(p.refreshed_at) : '',
+    p.note || '',
+  ])
+  const csv = [headers, ...data]
+    .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `portfolio_${new Date().toISOString().split('T')[0]}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function PortfolioView({
-  portfolio, onRemove, onRowClick, onRefreshAll, refreshing, onUpdateNote,
+  portfolio, onRemove, onRowClick,
+  onRefreshAll, refreshing,
+  onUpdateNote, onUpdatePosition,
 }) {
   const [sort, setSort] = useState({ col: 'upside_pct', dir: 'desc' })
+  const [showPositions, setShowPositions] = useState(false)
 
   function toggleSort(col) {
     setSort(s => s.col === col
@@ -64,15 +145,28 @@ export default function PortfolioView({
     )
   }
 
-  // attach computed drift so it participates in sort
-  const withDrift = portfolio.map(p => ({
-    ...p,
-    drift: p.price_at_add != null && p.refreshed_at
+  // ── Enrich rows with computed fields ──────────────────────────────────────
+  const enriched = portfolio.map(p => {
+    const total_cost   = p.shares && p.cost_basis ? p.shares * p.cost_basis : null
+    const market_value = p.shares ? p.shares * p.current_price : null
+    const target_value = p.shares ? p.shares * p.composite_price : null
+    const pnl_dollar   = market_value != null && total_cost != null ? market_value - total_cost : null
+    const pnl_pct      = pnl_dollar != null && total_cost > 0 ? pnl_dollar / total_cost * 100 : null
+    const drift        = p.price_at_add != null && p.refreshed_at
       ? (p.current_price - p.price_at_add) / p.price_at_add * 100
-      : null,
+      : null
+    return { ...p, drift, total_cost, market_value, target_value, pnl_dollar, pnl_pct }
+  })
+
+  const totalMarketValue = enriched.reduce((s, p) => s + (p.market_value ?? 0), 0)
+
+  const withWeight = enriched.map(p => ({
+    ...p,
+    weight_pct: totalMarketValue > 0 && p.market_value ? p.market_value / totalMarketValue * 100 : null,
   }))
 
-  const sorted = [...withDrift].sort((a, b) => {
+  // ── Sort ─────────────────────────────────────────────────────────────────
+  const sorted = [...withWeight].sort((a, b) => {
     const av = a[sort.col], bv = b[sort.col]
     if (av == null && bv == null) return 0
     if (av == null) return 1
@@ -81,11 +175,23 @@ export default function PortfolioView({
     return sort.dir === 'asc' ? cmp : -cmp
   })
 
-  const avgUpside = portfolio.reduce((s, p) => s + p.upside_pct, 0) / portfolio.length
-  const undervalued = portfolio.filter(p => p.upside_pct > 0).length
-  const overvalued  = portfolio.filter(p => p.upside_pct <= 0).length
+  // ── Summary stats ─────────────────────────────────────────────────────────
+  const avgUpside    = portfolio.reduce((s, p) => s + p.upside_pct, 0) / portfolio.length
+  const undervalued  = portfolio.filter(p => p.upside_pct > 0).length
+  const overvalued   = portfolio.filter(p => p.upside_pct <= 0).length
+  const bestTicker   = portfolio.reduce((best, p) => p.upside_pct > best.upside_pct ? p : best).ticker
 
-  const chartData = [...withDrift]
+  const hasPositions    = portfolio.some(p => p.shares)
+  const hasCostBasis    = portfolio.some(p => p.shares && p.cost_basis)
+  const totalCostBasis  = hasCostBasis
+    ? withWeight.reduce((s, p) => s + (p.total_cost ?? 0), 0)
+    : null
+  const totalPnlDollar  = totalCostBasis != null ? totalMarketValue - totalCostBasis : null
+  const totalPnlPct     = totalCostBasis > 0 ? totalPnlDollar / totalCostBasis * 100 : null
+  const totalTargetValue = withWeight.reduce((s, p) => s + (p.target_value ?? 0), 0)
+
+  // ── Chart data (always sorted ascending for visual clarity) ───────────────
+  const chartData = [...withWeight]
     .sort((a, b) => a.upside_pct - b.upside_pct)
     .map(p => ({ ticker: p.ticker, upside: parseFloat(p.upside_pct.toFixed(1)) }))
 
@@ -96,6 +202,7 @@ export default function PortfolioView({
     return !latest || p.refreshed_at > latest ? p.refreshed_at : latest
   }, null)
 
+  // ── Empty state ───────────────────────────────────────────────────────────
   if (!portfolio.length) {
     return (
       <div className="flex flex-col items-center justify-center py-28 gap-3 text-center">
@@ -111,7 +218,7 @@ export default function PortfolioView({
   return (
     <div className="space-y-4">
 
-      {/* ── Summary stats ───────────────────────────────────────── */}
+      {/* ── Summary stats ─────────────────────────────────────────── */}
       <div className="card">
         <div className="flex flex-wrap gap-6">
           <div className="stat-block">
@@ -130,14 +237,46 @@ export default function PortfolioView({
           </div>
           <div className="stat-block">
             <span className="stat-label">Best Upside</span>
-            <span className="stat-value text-gray-200">
-              {portfolio.reduce((best, p) => p.upside_pct > best.upside_pct ? p : best).ticker}
-            </span>
+            <span className="stat-value text-gray-200">{bestTicker}</span>
           </div>
         </div>
+
+        {/* Position summary — shown when Positions mode on and shares entered */}
+        {showPositions && hasPositions && (
+          <>
+            <div className="divider" />
+            <div className="flex flex-wrap gap-6">
+              <div className="stat-block">
+                <span className="stat-label">Market Value</span>
+                <span className="stat-value text-gray-200">{fmtBig(totalMarketValue)}</span>
+              </div>
+              {totalCostBasis > 0 && (
+                <>
+                  <div className="stat-block">
+                    <span className="stat-label">Cost Basis</span>
+                    <span className="stat-value text-gray-200">{fmtBig(totalCostBasis)}</span>
+                  </div>
+                  <div className="stat-block">
+                    <span className="stat-label">Unrealized P&amp;L</span>
+                    <span className={`stat-value ${totalPnlDollar >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {fmtBig(totalPnlDollar)}{' '}
+                      <span className="text-sm font-normal">({fmtPct(totalPnlPct)})</span>
+                    </span>
+                  </div>
+                </>
+              )}
+              {totalTargetValue > 0 && (
+                <div className="stat-block">
+                  <span className="stat-label">Target Value</span>
+                  <span className="stat-value text-blue-400">{fmtBig(totalTargetValue)}</span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* ── Comparison chart ────────────────────────────────────── */}
+      {/* ── Comparison chart ──────────────────────────────────────── */}
       <div className="card">
         <p className="label mb-4">Upside / Downside by Stock</p>
         <ResponsiveContainer width="100%" height={chartHeight}>
@@ -172,29 +311,47 @@ export default function PortfolioView({
         </ResponsiveContainer>
       </div>
 
-      {/* ── Table ───────────────────────────────────────────────── */}
+      {/* ── Table ─────────────────────────────────────────────────── */}
       <div className="card overflow-x-auto">
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs text-gray-400">
             {portfolio.length} stock{portfolio.length !== 1 ? 's' : ''}
           </p>
-          <button
-            onClick={onRefreshAll}
-            disabled={refreshing}
-            className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
-              refreshing
-                ? 'bg-gray-800 text-gray-500 cursor-default'
-                : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
-            }`}
-          >
-            {refreshing && (
-              <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
-              </svg>
-            )}
-            {refreshing ? 'Refreshing…' : 'Refresh All'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportCSV(sorted)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => setShowPositions(s => !s)}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                showPositions
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+              }`}
+            >
+              Positions
+            </button>
+            <button
+              onClick={onRefreshAll}
+              disabled={refreshing}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                refreshing
+                  ? 'bg-gray-800 text-gray-500 cursor-default'
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+              }`}
+            >
+              {refreshing && (
+                <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+                </svg>
+              )}
+              {refreshing ? 'Refreshing…' : 'Refresh All'}
+            </button>
+          </div>
         </div>
 
         <table className="w-full text-sm min-w-[900px]">
@@ -210,73 +367,108 @@ export default function PortfolioView({
               <SortTh col="dcf_price"           label="DCF"           sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
               <SortTh col="multiples_avg_price" label="Multiples Avg" sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
               <SortTh col="added_at"            label="Added"         sort={sort} onSort={toggleSort} right extraClass="hidden lg:table-cell" />
-              <th className="text-xs font-medium pb-3 pr-4 text-gray-500 text-left whitespace-nowrap">Notes</th>
+              {/* position columns */}
+              {showPositions && <>
+                <th className="text-xs font-medium pb-3 pr-3 text-gray-500 text-right whitespace-nowrap">Shares</th>
+                <th className="text-xs font-medium pb-3 pr-3 text-gray-500 text-right whitespace-nowrap">Cost/Share</th>
+                <SortTh col="market_value" label="Mkt Value"  sort={sort} onSort={toggleSort} right />
+                <SortTh col="total_cost"   label="Cost Basis" sort={sort} onSort={toggleSort} right />
+                <SortTh col="pnl_dollar"   label="P&L $"      sort={sort} onSort={toggleSort} right />
+                <SortTh col="pnl_pct"      label="P&L %"      sort={sort} onSort={toggleSort} right />
+                <SortTh col="weight_pct"   label="Weight"     sort={sort} onSort={toggleSort} right />
+              </>}
+              <th className="text-xs font-medium pb-3 pr-3 text-gray-500 text-left whitespace-nowrap">Notes</th>
               <th className="pb-3"></th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((p) => {
-              const up = p.upside_pct >= 0
-              const driftUp = p.drift != null ? p.drift >= 0 : null
+              const up       = p.upside_pct >= 0
+              const driftUp  = p.drift != null ? p.drift >= 0 : null
+              const pnlUp    = p.pnl_dollar != null ? p.pnl_dollar >= 0 : null
               return (
                 <tr
                   key={p.ticker}
                   onClick={() => onRowClick(p.ticker)}
                   className="border-b border-gray-800 last:border-0 hover:bg-gray-800/40 cursor-pointer transition-colors"
                 >
-                  <td className="py-3 pr-4">
+                  <td className="py-3 pr-3">
                     <span className="font-mono text-xs bg-gray-800 text-blue-400 px-2 py-0.5 rounded">
                       {p.ticker}
                     </span>
                   </td>
-                  <td className="py-3 pr-4 text-xs text-gray-200 max-w-[150px] truncate">
-                    {p.name}
-                  </td>
-                  <td className="py-3 pr-4 text-xs text-gray-500 hidden md:table-cell max-w-[130px] truncate">
+                  <td className="py-3 pr-3 text-xs text-gray-200 max-w-[150px] truncate">{p.name}</td>
+                  <td className="py-3 pr-3 text-xs text-gray-500 hidden md:table-cell max-w-[130px] truncate">
                     {p.damodaran_industry || p.sector || '—'}
                   </td>
-                  <td className="py-3 pr-4 text-xs font-mono text-gray-200 text-right">
-                    {fmt(p.current_price)}
-                  </td>
-                  <td className="py-3 pr-4 text-xs font-mono text-right">
+                  <td className="py-3 pr-3 text-xs font-mono text-gray-200 text-right">{fmt(p.current_price)}</td>
+                  <td className="py-3 pr-3 text-xs font-mono text-right">
                     {p.drift == null
                       ? <span className="text-gray-600">—</span>
-                      : <span className={driftUp ? 'text-emerald-400' : 'text-red-400'}>
-                          {fmtDrift(p.drift)}
-                        </span>
+                      : <span className={driftUp ? 'text-emerald-400' : 'text-red-400'}>{fmtDrift(p.drift)}</span>
                     }
                   </td>
-                  <td className="py-3 pr-4 text-xs font-mono text-right">
-                    <span className={up ? 'text-emerald-400' : 'text-red-400'}>
-                      {fmt(p.composite_price)}
-                    </span>
+                  <td className="py-3 pr-3 text-xs font-mono text-right">
+                    <span className={up ? 'text-emerald-400' : 'text-red-400'}>{fmt(p.composite_price)}</span>
                   </td>
-                  <td className="py-3 pr-4 text-right">
+                  <td className="py-3 pr-3 text-right">
                     <span className={up ? 'badge-up' : 'badge-down'}>
                       {up ? '▲' : '▼'} {Math.abs(p.upside_pct).toFixed(1)}%
                     </span>
                   </td>
-                  <td className="py-3 pr-4 text-xs font-mono text-gray-400 text-right hidden lg:table-cell">
-                    {fmt(p.dcf_price)}
-                  </td>
-                  <td className="py-3 pr-4 text-xs font-mono text-gray-400 text-right hidden lg:table-cell">
-                    {fmt(p.multiples_avg_price)}
-                  </td>
-                  <td className="py-3 pr-4 text-xs text-gray-500 text-right hidden lg:table-cell whitespace-nowrap">
-                    {fmtDate(p.added_at)}
-                  </td>
-                  <td className="py-3 pr-4" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      value={p.note || ''}
-                      onChange={(e) => onUpdateNote(p.ticker, e.target.value)}
+                  <td className="py-3 pr-3 text-xs font-mono text-gray-400 text-right hidden lg:table-cell">{fmt(p.dcf_price)}</td>
+                  <td className="py-3 pr-3 text-xs font-mono text-gray-400 text-right hidden lg:table-cell">{fmt(p.multiples_avg_price)}</td>
+                  <td className="py-3 pr-3 text-xs text-gray-500 text-right hidden lg:table-cell whitespace-nowrap">{fmtDate(p.added_at)}</td>
+
+                  {/* position cells */}
+                  {showPositions && <>
+                    <td className="py-3 pr-3 text-right" onClick={e => e.stopPropagation()}>
+                      <InlineInput
+                        type="number" value={p.shares} right width="w-16"
+                        placeholder="—"
+                        onChange={v => onUpdatePosition(p.ticker, 'shares', v)}
+                      />
+                    </td>
+                    <td className="py-3 pr-3 text-right" onClick={e => e.stopPropagation()}>
+                      <InlineInput
+                        type="number" value={p.cost_basis} right width="w-20"
+                        placeholder="—"
+                        onChange={v => onUpdatePosition(p.ticker, 'cost_basis', v)}
+                      />
+                    </td>
+                    <td className="py-3 pr-3 text-xs font-mono text-gray-200 text-right">
+                      {p.market_value != null ? fmt(p.market_value, 0) : <span className="text-gray-600">—</span>}
+                    </td>
+                    <td className="py-3 pr-3 text-xs font-mono text-gray-400 text-right">
+                      {p.total_cost != null ? fmt(p.total_cost, 0) : <span className="text-gray-600">—</span>}
+                    </td>
+                    <td className="py-3 pr-3 text-xs font-mono text-right">
+                      {pnlUp == null
+                        ? <span className="text-gray-600">—</span>
+                        : <span className={pnlUp ? 'text-emerald-400' : 'text-red-400'}>{fmt(p.pnl_dollar, 0)}</span>
+                      }
+                    </td>
+                    <td className="py-3 pr-3 text-xs font-mono text-right">
+                      {p.pnl_pct == null
+                        ? <span className="text-gray-600">—</span>
+                        : <span className={p.pnl_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}>{fmtPct(p.pnl_pct)}</span>
+                      }
+                    </td>
+                    <td className="py-3 pr-3 text-xs font-mono text-gray-400 text-right">
+                      {p.weight_pct != null ? `${p.weight_pct.toFixed(1)}%` : <span className="text-gray-600">—</span>}
+                    </td>
+                  </>}
+
+                  <td className="py-3 pr-3" onClick={e => e.stopPropagation()}>
+                    <InlineInput
+                      value={p.note} width="w-28"
                       placeholder="Add note…"
-                      className="bg-transparent text-xs text-gray-400 placeholder-gray-700 focus:outline-none focus:text-gray-200 w-32 border-b border-transparent focus:border-gray-600 transition-colors"
+                      onChange={v => onUpdateNote(p.ticker, v)}
                     />
                   </td>
                   <td className="py-3 text-right">
                     <button
-                      onClick={(e) => { e.stopPropagation(); onRemove(p.ticker) }}
+                      onClick={e => { e.stopPropagation(); onRemove(p.ticker) }}
                       className="text-xs text-gray-600 hover:text-red-400 transition-colors px-1"
                       title="Remove"
                     >

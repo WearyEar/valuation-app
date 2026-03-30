@@ -51,6 +51,13 @@ export default function App() {
     savePortfolio(portfolio.map(p => p.ticker === ticker ? { ...p, note } : p))
   }
 
+  function handleUpdatePosition(ticker, field, value) {
+    const parsed = value === '' ? null : parseFloat(value)
+    savePortfolio(portfolio.map(p =>
+      p.ticker === ticker ? { ...p, [field]: isNaN(parsed) ? null : parsed } : p
+    ))
+  }
+
   async function handleRefreshAll() {
     if (refreshing || !portfolio.length) return
     setRefreshing(true)
@@ -251,6 +258,7 @@ export default function App() {
             onRefreshAll={handleRefreshAll}
             refreshing={refreshing}
             onUpdateNote={handleUpdateNote}
+            onUpdatePosition={handleUpdatePosition}
           />
         )}
       </main>
